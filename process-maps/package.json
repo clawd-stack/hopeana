@@ -1,0 +1,30 @@
+{
+  "name": "@peggy/process-maps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Process maps: a shared, Miro-style board for mapping WCC back-office processes. Built as a self-contained module to drop into Peggy.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "netlify dev",
+    "serve": "node scripts/dev-server.mjs",
+    "check": "npm run typecheck && npm run test",
+    "test:browser": "node tests/browser/run.mjs"
+  },
+  "dependencies": {
+    "@netlify/database": "^2.0.1",
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^2.8.1",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5",
+    "playwright": "1.56.1"
+  }
+}

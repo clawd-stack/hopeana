@@ -1,0 +1,107 @@
+name: process-maps
+
+# Typecheck and the full test suite, with the store contract run against a
+# real Postgres using the same migration Netlify DB applies on deploy.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'process-maps/**'
+      - '.github/workflows/process-maps.yml'
+  pull_request:
+    paths:
+      - 'process-maps/**'
+      - '.github/workflows/process-maps.yml'
+
+defaults:
+  run:
+    working-directory: process-maps
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: process_maps_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/process_maps_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: process-maps/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Apply migrations
+        run: |
+          for dir in $(ls -d netlify/database/migrations/*/ | sort); do
+            echo "applying $dir"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$dir/migration.sql"
+          done
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Check no credential reached the tree
+        run: |
+          if grep -rInE '(SESSION_SECRET|ADMIN_BOOTSTRAP_PASSWORD)[[:space:]]*[=:][[:space:]]*["'"'"']?[A-Za-z0-9._:-]{16,}' \
+               --exclude-dir=node_modules --exclude='*.example' --exclude-dir=tests --exclude-dir=scripts . ; then
+            echo "::error::A credential-shaped value is committed. Move it to an environment variable."
+            exit 1
+          fi
+          echo "No committed credentials found."
+
+  browser:
+    # The real pages in Chromium: two people on one board, every tool, the
+    # clipboard, the phone layout. Fails on any console error in the page.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: process-maps/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        env:
+          BROWSER_TEST_OUT: ${{ runner.temp }}/screenshots
+        run: npm run test:browser
+
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: process-maps-screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: ignore

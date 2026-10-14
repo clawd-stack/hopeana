@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Process map</title>
+  <link rel="icon" href="/maps/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/maps/maps.css">
+  <link rel="alternate" type="text/markdown" href="/llms.txt" title="Guide for agents">
+</head>
+<body class="pm-board-page">
+  <noscript><p class="pm-noscript">Process maps needs JavaScript. If you are an agent (an AI assistant or a script) this page will look empty: read and change maps through the agent API instead. The guide is at /llms.txt. This map's id is the id= in this page's address: read it at /api/agent/maps/{id} with your access key.</p></noscript>
+  <div class="pm-stage" id="stage" aria-label="Process map board">
+    <div class="pm-world" id="world">
+      <div class="pm-layer" id="lanes"></div>
+      <svg class="pm-links" id="links" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="pm-layer" id="labels"></div>
+      <div class="pm-layer" id="nodes"></div>
+    </div>
+    <div class="pm-overlay" id="overlay"></div>
+  </div>
+  <script type="module" src="/maps/board/main.js"></script>
+</body>
+</html>
