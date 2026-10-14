@@ -1,0 +1,35 @@
+# Process maps: the shared process-mapping board, built as a module for Peggy.
+#
+# netlify.toml sits at the repository root because that is where Netlify
+# reads it; `base` points at the module, and publish, functions and the build
+# command below are all relative to it.
+
+[build]
+  base = "process-maps"
+  publish = "web"
+  functions = "netlify/functions"
+  # Typecheck only. The tests run in GitHub Actions against a throwaway
+  # Postgres, never against the database Netlify provisions for the site.
+  command = "npm run typecheck"
+
+[functions]
+  node_bundler = "esbuild"
+  directory = "netlify/functions"
+
+# The site root has no page of its own; the maps list is the front door.
+[[redirects]]
+  from = "/"
+  to = "/maps/"
+  status = 302
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+
+[dev]
+  framework = "#static"
+  publish = "web"

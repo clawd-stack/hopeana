@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Process map</title>
+  <link rel="icon" href="/maps/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/maps/maps.css">
+</head>
+<body class="pm-board-page">
+  <div class="pm-stage" id="stage" aria-label="Process map board">
+    <div class="pm-world" id="world">
+      <div class="pm-layer" id="lanes"></div>
+      <svg class="pm-links" id="links" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="pm-layer" id="labels"></div>
+      <div class="pm-layer" id="nodes"></div>
+    </div>
+    <div class="pm-overlay" id="overlay"></div>
+  </div>
+  <script type="module" src="/maps/board/main.js"></script>
+</body>
+</html>
