@@ -48,6 +48,7 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--pm-accent); }
 [hidden] { display: none !important; }
+.pm-noscript { max-width: 640px; margin: 40px auto; padding: 0 20px; color: var(--pm-ink-2); }
 .pm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Header ------------------------------------------------------------ */

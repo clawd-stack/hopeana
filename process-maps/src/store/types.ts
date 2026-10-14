@@ -14,9 +14,14 @@ export const MAP_STATUSES: readonly MapStatus[] = ['draft', 'in_review', 'agreed
 
 export interface UserRecord {
   userId: string;
-  email: string;
+  /** Null for an agent, which never signs in with a password. */
+  email: string | null;
   name: string;
   role: Role;
+  /** Software, not a person: uses an access key, never the board. */
+  isAgent: boolean;
+  /** When the agent's current access key was made; null if it has none. */
+  apiKeyCreatedAt: string | null;
   active: boolean;
   mustChange: boolean;
   /** In every session cookie; bumped by setPassword, which ends older sessions. */
@@ -87,11 +92,15 @@ export interface Store {
     getByEmail(email: string): Promise<UserRecord | null>;
     list(): Promise<UserRecord[]>;
     /** Null when the address is already taken. */
-    create(input: { email: string; name: string; role: Role; passwordHash: string | null; mustChange: boolean }): Promise<UserRecord | null>;
+    create(input: { email: string | null; name: string; role: Role; passwordHash: string | null; mustChange: boolean; isAgent?: boolean }): Promise<UserRecord | null>;
     update(userId: string, patch: { name?: string; role?: Role; active?: boolean }): Promise<UserRecord | null>;
     /** Also bumps sessionVersion, signing out every existing session. */
     setPassword(userId: string, passwordHash: string, mustChange: boolean): Promise<void>;
     recordLogin(userId: string): Promise<void>;
+    /** Replaces the account's access key with one whose SHA-256 is keyHash. */
+    setApiKey(userId: string, keyHash: string): Promise<void>;
+    /** The account holding the key with this SHA-256, active or not. */
+    getByApiKey(keyHash: string): Promise<UserRecord | null>;
   };
   /** True while the bucket is under its limit for the window. */
   throttle(bucketKey: string, limit: number, windowMs: number): Promise<boolean>;

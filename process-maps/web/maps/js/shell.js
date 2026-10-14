@@ -33,6 +33,7 @@ function signIn() {
       field('Password', password),
       button,
       el('p', { class: 'pm-hint', style: 'margin-top:14px', text: 'No account yet? Ask an admin to add you.' }),
+      el('p', { class: 'pm-hint', style: 'margin-top:6px' }, ['Agents do not sign in here: use an access key with the API. ', el('a', { href: '/llms.txt', text: 'Guide for agents' })]),
     ]);
     form.addEventListener('submit', async (event) => {
       event.preventDefault();

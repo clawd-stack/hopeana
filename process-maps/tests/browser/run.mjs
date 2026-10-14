@@ -57,7 +57,7 @@ const watch = (page) => {
 const browser = await chromium.launch();
 let crashed = null;
 try {
-  for (const name of ['smoke', 'collab', 'tools']) {
+  for (const name of ['smoke', 'collab', 'tools', 'agents']) {
     console.log(`\n# ${name}`);
     const { default: run } = await import(`./${name}.mjs`);
     await run({ browser, base, out, check, watch });

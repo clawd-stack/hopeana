@@ -19,7 +19,7 @@ export default async function run({ browser, base, out, check, watch }) {
 
   // Team page: add Sarah (editor) and Viewer Vic.
   await A.goto(`${base}/maps/team.html`);
-  await A.click('.pm-page__actions button');
+  await A.click('.pm-page__actions button:has-text("Add person")');
   await A.fill('input[name=name]', 'Sarah Hack');
   await A.fill('input[name=email]', 'sarah@example.com');
   await A.click('dialog button[type=submit]');
@@ -27,7 +27,7 @@ export default async function run({ browser, base, out, check, watch }) {
   const sarahPassword = await A.textContent('.pm-secret code');
   await A.screenshot({ path: `${out}/06-team-password.png` });
   await A.click('button:has-text("Done")');
-  await A.click('.pm-page__actions button');
+  await A.click('.pm-page__actions button:has-text("Add person")');
   await A.fill('input[name=name]', 'Vic Viewer');
   await A.fill('input[name=email]', 'vic@example.com');
   await A.selectOption('select[name=role]', 'viewer');

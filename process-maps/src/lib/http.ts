@@ -56,11 +56,22 @@ export function requireSameOrigin(request: Request): void {
   }
 }
 
-/** Wraps a handler so every thrown error becomes a shaped response. */
-export function handler(run: (request: Request) => Promise<Response>): (request: Request) => Promise<Response> {
+/**
+ * Wraps a handler so every thrown error becomes a shaped response.
+ *
+ * A request with a Bearer Authorization header is an agent with a key, which
+ * cross-site request forgery cannot touch: a browser never adds that header
+ * by itself, and another site cannot add it without a preflight this API
+ * never answers. `keyOnly` endpoints accept nothing but a key, so they skip
+ * the check too.
+ */
+export function handler(
+  run: (request: Request) => Promise<Response>,
+  { keyOnly = false } = {},
+): (request: Request) => Promise<Response> {
   return async (request: Request) => {
     try {
-      requireSameOrigin(request);
+      if (!keyOnly && !/^Bearer\s/i.test(request.headers.get('authorization') ?? '')) requireSameOrigin(request);
       return await run(request);
     } catch (error) {
       return errorResponse(error);
@@ -84,6 +95,22 @@ export async function readJson<T = Record<string, unknown>>(request: Request): P
     refuse('INVALID_REQUEST');
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) refuse('INVALID_REQUEST');
+  return body as T;
+}
+
+/**
+ * A JSON body from an agent. Key-only endpoints cannot be forged across
+ * sites, so the content type is not policed: agents forget it, and a refusal
+ * for that would only waste their turn.
+ */
+export async function readAgentJson<T = Record<string, unknown>>(request: Request): Promise<T> {
+  let body: unknown;
+  try {
+    body = JSON.parse(await request.text());
+  } catch {
+    refuse('INVALID_REQUEST', { expected: 'a JSON object' }, 'The body must be a JSON object.');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) refuse('INVALID_REQUEST', { expected: 'a JSON object' }, 'The body must be a JSON object.');
   return body as T;
 }
 

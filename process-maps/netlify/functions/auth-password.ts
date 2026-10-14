@@ -16,11 +16,13 @@ export default handler(async (request) => {
   requireMethod(request, 'POST');
   const store = await getStore();
   const user = await requireUser(request, store, { allowMustChange: true });
+  // An agent has a key, not a password; an admin replaces the key instead.
+  if (user.isAgent) throw new AppError('FORBIDDEN');
   const body = await readJson<{ current?: unknown; next?: unknown }>(request);
   const current = readPassword(body.current);
   const next = readPassword(body.next);
 
-  if (!(await withinRateLimit(store, user.email, clientIp(request)))) throw new AppError('RATE_LIMITED');
+  if (!(await withinRateLimit(store, user.email ?? user.userId, clientIp(request)))) throw new AppError('RATE_LIMITED');
   if (!user.passwordHash || !(await verifyPassword(current, user.passwordHash))) {
     throw new AppError('SIGNIN_FAILED', null, 'Your current password was not right.');
   }

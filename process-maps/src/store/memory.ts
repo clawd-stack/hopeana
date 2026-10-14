@@ -31,6 +31,7 @@ const clone = <T>(value: T): T => structuredClone(value);
 
 export function createMemoryStore(): MemoryStore {
   const users = new Map<string, UserRecord>();
+  const apiKeys = new Map<string, string>(); // userId -> SHA-256 of the key
   const maps = new Map<string, MemMap>();
   const throttles = new Map<string, { hits: number; windowStart: number }>();
 
@@ -58,7 +59,7 @@ export function createMemoryStore(): MemoryStore {
       },
       async getByEmail(email) {
         const lower = email.toLowerCase();
-        for (const user of users.values()) if (user.email.toLowerCase() === lower) return clone(user);
+        for (const user of users.values()) if (user.email?.toLowerCase() === lower) return clone(user);
         return null;
       },
       async list() {
@@ -67,13 +68,15 @@ export function createMemoryStore(): MemoryStore {
           .map(clone);
       },
       async create(input) {
-        const lower = input.email.toLowerCase();
-        for (const user of users.values()) if (user.email.toLowerCase() === lower) return null;
+        const lower = input.email?.toLowerCase();
+        if (lower !== undefined) for (const user of users.values()) if (user.email?.toLowerCase() === lower) return null;
         const user: UserRecord = {
           userId: randomUUID(),
           email: input.email,
           name: input.name,
           role: input.role,
+          isAgent: input.isAgent ?? false,
+          apiKeyCreatedAt: null,
           active: true,
           mustChange: input.mustChange,
           sessionVersion: 0,
@@ -102,6 +105,16 @@ export function createMemoryStore(): MemoryStore {
       async recordLogin(userId) {
         const user = users.get(userId);
         if (user) user.lastLoginAt = new Date().toISOString();
+      },
+      async setApiKey(userId, keyHash) {
+        const user = users.get(userId);
+        if (!user) return;
+        apiKeys.set(userId, keyHash);
+        user.apiKeyCreatedAt = new Date().toISOString();
+      },
+      async getByApiKey(keyHash) {
+        for (const [userId, hash] of apiKeys) if (hash === keyHash) return clone(users.get(userId)!);
+        return null;
       },
     },
 

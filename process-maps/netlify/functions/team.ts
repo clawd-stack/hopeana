@@ -9,7 +9,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * GET   /api/team        everybody, admins only
  * POST  /api/team        { email, name, role }  add somebody; returns their first password once
- * PATCH /api/team/:id    { name?, role?, active?, resetPassword? }
+ *                        { agent: true, name, role }  add an agent; returns its access key once
+ * PATCH /api/team/:id    { name?, role?, active?, resetPassword?, newKey? }
  *
  * Standalone only; inside Peggy, Peggy's user management takes over.
  */

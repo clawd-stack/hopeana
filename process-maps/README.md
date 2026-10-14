@@ -28,6 +28,9 @@ Built as a self-contained module on Peggy's stack (Netlify functions, Netlify DB
 - Everybody on a map sees each other's changes within about two seconds, who else is on the board, and what each person has selected (outlined in their colour with their name).
 - Roles: **admin** (edits, manages the team), **editor** (edits), **viewer** (reads).
 
+**Agents**
+- AI agents and scripts (Crocbot, a Claude agent) can read and change maps too, through an API and an MCP server rather than the board. Their edits reach everybody with the map open within a couple of seconds, outlined with the agent's name. See [Agents](#agents).
+
 **Getting it out**
 - Export a PNG of the whole map or the selection, drawn from the data rather than screenshotted, so it is sharp for Notion, an IC pack or an email.
 - Export and import JSON as a backup or to move a map between sites.
@@ -53,7 +56,7 @@ DATABASE_URL=postgres://localhost/process_maps npm run serve
 ```sh
 npm run check            # typecheck + unit and API tests (in-memory store)
 DATABASE_URL=postgres://localhost/process_maps_test npm test   # adds the Postgres store contract
-npm run test:browser     # the real pages in Chromium: two people on one board, every tool, phone layout
+npm run test:browser     # the real pages in Chromium: two people on one board, every tool, phone layout, an agent editing live
 ```
 
 CI runs all three on every pull request, the Postgres contract against the same migration Netlify DB applies.
@@ -76,16 +79,48 @@ The module is laid out the way Peggy is, so the move is mostly copying files. Ev
 | `src/store/` (the `maps` half) | Merge into Peggy's store, or keep as its own module. |
 | `netlify/functions/maps.ts`, `map-sync.ts` | Unchanged. |
 | `netlify/database/migrations/001_process-maps` | Renumber after Peggy's latest migration. Drop `pm_users` and `pm_throttle` and point the `created_by`, `updated_by` and `pm_presence.user_id` foreign keys at Peggy's users table. |
+| `netlify/database/migrations/002_agents` | Add `is_agent`, `api_key_hash` and `api_key_created_at` to Peggy's users table instead of `pm_users`. |
+| `src/domain/agent.ts`, `agent-guide.ts`, `preview.ts`, `netlify/functions/agent.ts`, `mcp.ts` | Unchanged: agents come with the module. |
 | `web/maps/` | Leave out `team.html` and `js/team.js`. |
 | `tests/` | The store contract, API and browser tests come across as they are. |
 
 Then change three things:
 
-1. **Who is signed in.** `src/lib/auth.ts` is the only file that reads the session. Make `requireUser()` read Peggy's session and return `{ userId, name, role }`, mapping Peggy's roles onto admin, editor and viewer.
+1. **Who is signed in.** `src/lib/auth.ts` is the only file that reads the session. Make `requireUser()` read Peggy's session and return `{ userId, name, role }`, mapping Peggy's roles onto admin, editor and viewer. Keep its access-key branch: that is how agents get in.
 2. **The header.** `web/maps/js/shell.js` draws this module's header and sign-in. Replace `boot()` with Peggy's header; the pages only need it to hand back the signed-in user.
 3. **Navigation.** Add a "Process maps" link to Peggy's nav pointing at `/maps/`.
 
 Drop the standalone-only pieces: `netlify/functions/auth-*.ts`, `team.ts`, `src/domain/team.ts`, `src/domain/bootstrap.ts`, and `scripts/dev-server.mjs` if Peggy has its own.
+
+## Agents
+
+The board is drawn by JavaScript, so an agent that fetches a page sees nothing, and one driving a browser would be dragging shapes by the pixel. Agents get their own way in instead.
+
+1. An admin opens **Team → Add agent**, names it (say Crocbot) and picks editor or viewer. The agent's access key (`pmk_...`) is shown once, with a **Copy setup for the agent** button that copies everything the agent needs in one message.
+2. The agent reads the guide at `/llms.txt` (every page also points there, and so does the sign-in form) and then either:
+   - connects to the MCP server at `/api/mcp` with `Authorization: Bearer pmk_...` (tools: `list_maps`, `read_map`, `create_map`, `edit_map`), or
+   - calls the HTTP API at `/api/agent/maps` with the same header.
+3. It reads a map as an outline, lane by lane, every item with its id:
+
+   ```
+   Lane "AP clerk" [k3Jd9]:
+   - [match] Step: "Match invoice to PO and docket" | who: AP clerk | system: Xero | time: 10 min | flag: pain
+       -> [d1] "Does it match?"
+   ```
+
+4. It changes the map with plain commands, and the server works out where things go:
+
+   ```json
+   {"changes": [
+     {"action": "add", "kind": "step", "text": "Approve", "lane": "Approver", "after": "Does it match?", "label": "Yes"},
+     {"action": "update", "item": "match", "flag": "idea", "notes": "Could be automatic"},
+     {"action": "connect", "from": "Query the supplier", "to": "match", "label": "Fixed"}
+   ]}
+   ```
+
+   `add` (step, decision, start, end, note, text, lane), `update`/`move`, `connect`, `disconnect`, `delete` and `set_map`. Things can be named by id or exact text; a lane that does not exist yet is made. One request is all or nothing, and a refusal names the change that failed and why, so the agent can fix it and try again.
+
+Agents are team members with `is_agent` set: no email, no password, never admin. **New key** replaces the key (the old one stops at once); **Deactivate** stops the agent. Only a SHA-256 of the key is stored. A request with a key is that agent and nothing else: it never falls back to a cookie, and the agent API and MCP never accept a cookie at all.
 
 ## How collaboration works
 
@@ -101,7 +136,8 @@ Netlify functions cannot hold a live connection open, so browsers poll: every 1.
 - An admin-issued password is good for choosing a new one and nothing else, enforced by the server.
 - Changing or resetting a password ends every session on that account.
 - Writes are accepted only as JSON from the site's own pages (`Sec-Fetch-Site` and `Origin` are checked), and the pages run under a strict Content-Security-Policy.
-- Everything a browser sends is rebuilt from known fields on the server, with text cleaned of anything Postgres would refuse.
+- Everything a browser or agent sends is rebuilt from known fields on the server, with text cleaned of anything Postgres would refuse.
+- Agent keys are 32 random bytes, stored only as a SHA-256, shown once. The same-site check is skipped only for requests carrying a `Bearer` key, which a browser never adds by itself; `Basic` auth from a password-protected deploy still goes through the cookie and the check.
 
 ## Limits, on purpose
 
@@ -115,8 +151,8 @@ Netlify functions cannot hold a live connection open, so browsers poll: every 1.
 ```
 process-maps/
   netlify/database/migrations/   schema (pm_* tables)
-  netlify/functions/             API: maps, map-sync, auth-*, team, health
-  src/domain/                    items and validation, maps and sync, templates, team
+  netlify/functions/             API: maps, map-sync, auth-*, team, health; agent (API and /llms.txt), mcp
+  src/domain/                    items and validation, maps and sync, templates, team; agent (outline, commands, layout)
   src/store/                     Postgres and in-memory stores behind one interface
   src/lib/                       auth seam, HTTP helpers, passwords, sessions
   web/maps/                      list, board and team pages; board/ is the canvas

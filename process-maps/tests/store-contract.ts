@@ -15,8 +15,8 @@ export function storeContract(name: string, make: () => Store, teardown?: () => 
 
     it('creates users with unique, case-insensitive emails', async () => {
       const user = await makeUser(store);
-      expect(await store.users.getByEmail(user.email.toUpperCase())).toMatchObject({ userId: user.userId });
-      const clash = await store.users.create({ email: user.email.toUpperCase(), name: 'Clash', role: 'viewer', passwordHash: null, mustChange: true });
+      expect(await store.users.getByEmail(user.email!.toUpperCase())).toMatchObject({ userId: user.userId });
+      const clash = await store.users.create({ email: user.email!.toUpperCase(), name: 'Clash', role: 'viewer', passwordHash: null, mustChange: true });
       expect(clash).toBeNull();
     });
 
@@ -25,6 +25,23 @@ export function storeContract(name: string, make: () => Store, teardown?: () => 
       expect(await store.users.update(user.userId, { role: 'viewer', active: false })).toMatchObject({ role: 'viewer', active: false, name: user.name });
       await store.users.setPassword(user.userId, 'scrypt$hash', true);
       expect(await store.users.get(user.userId)).toMatchObject({ passwordHash: 'scrypt$hash', mustChange: true });
+    });
+
+    it('keeps agents without an email, finds them by key hash, and replaces keys', async () => {
+      const a = await store.users.create({ email: null, name: 'Bot A', role: 'editor', passwordHash: null, mustChange: false, isAgent: true });
+      const b = await store.users.create({ email: null, name: 'Bot B', role: 'viewer', passwordHash: null, mustChange: false, isAgent: true });
+      expect(a).toMatchObject({ email: null, isAgent: true, apiKeyCreatedAt: null });
+      expect(b).not.toBeNull();
+      const hashA = `hash-a-${Math.random()}`;
+      await store.users.setApiKey(a!.userId, hashA);
+      expect(await store.users.getByApiKey(hashA)).toMatchObject({ userId: a!.userId, isAgent: true });
+      expect((await store.users.get(a!.userId))!.apiKeyCreatedAt).not.toBeNull();
+      const replaced = `hash-a2-${Math.random()}`;
+      await store.users.setApiKey(a!.userId, replaced);
+      expect(await store.users.getByApiKey(hashA)).toBeNull();
+      expect(await store.users.getByApiKey(replaced)).toMatchObject({ userId: a!.userId });
+      expect(await store.users.getByApiKey('no-such-hash')).toBeNull();
+      expect((await makeUser(store)).isAgent).toBe(false);
     });
 
     it('throttles a bucket once it passes its limit', async () => {

@@ -46,6 +46,8 @@ function mapUser(row: any): UserRecord {
     email: row.email,
     name: row.name,
     role: row.role as Role,
+    isAgent: row.is_agent === true,
+    apiKeyCreatedAt: isoOrNull(row.api_key_created_at),
     active: row.active,
     mustChange: row.must_change,
     sessionVersion: toNumber(row.session_version),
@@ -126,10 +128,10 @@ export function createPgStore(connectionString?: string): Store {
         const rows: any[] = await sql()`select * from pm_users order by active desc, lower(name)`;
         return rows.map(mapUser);
       },
-      async create({ email, name, role, passwordHash, mustChange }) {
+      async create({ email, name, role, passwordHash, mustChange, isAgent = false }) {
         const [row]: any[] = await sql()`
-          insert into pm_users (email, name, role, password_hash, must_change)
-          values (${email}, ${name}, ${role}, ${passwordHash}, ${mustChange})
+          insert into pm_users (email, name, role, password_hash, must_change, is_agent)
+          values (${email}, ${name}, ${role}, ${passwordHash}, ${mustChange}, ${isAgent})
           on conflict (lower(email)) do nothing
           returning *
         `;
@@ -156,6 +158,16 @@ export function createPgStore(connectionString?: string): Store {
       },
       async recordLogin(userId) {
         await sql()`update pm_users set last_login_at = now() where user_id = ${userId}::uuid`;
+      },
+      async setApiKey(userId, keyHash) {
+        await sql()`
+          update pm_users set api_key_hash = ${keyHash}, api_key_created_at = now(), updated_at = now()
+          where user_id = ${userId}::uuid
+        `;
+      },
+      async getByApiKey(keyHash) {
+        const [row]: any[] = await sql()`select * from pm_users where api_key_hash = ${keyHash}`;
+        return row ? mapUser(row) : null;
       },
     },
 
