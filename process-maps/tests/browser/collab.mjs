@@ -84,6 +84,32 @@ export default async function run({ browser, base, out, check, watch }) {
   check('the admin shows as one person, not one per tab', (await S.locator('.pm-people .pm-avatar').count()) === 1);
   await S.screenshot({ path: `${out}/08-sarah-sees-admin.png` });
 
+  // The context toolbar stays put while syncs come and go, so a click on it
+  // is never lost to a rebuild.
+  await A.evaluate(() => {
+    window.__toolbar = 0;
+    new MutationObserver(() => { window.__toolbar += 1; }).observe(document.querySelector('.pm-context'), { childList: true });
+  });
+  await A.waitForTimeout(4000);
+  check('the toolbar is not rebuilt by background syncs', (await A.evaluate(() => window.__toolbar)) === 0);
+
+  // Admin opens Sarah's sticky to edit but types nothing; meanwhile Sarah
+  // changes it. Closing the editor must not write the old text back.
+  const stickyBox = await A.locator('.pm-node--sticky', { hasText: 'Sarah was here' }).boundingBox();
+  await A.mouse.dblclick(stickyBox.x + stickyBox.width / 2, stickyBox.y + stickyBox.height / 2);
+  await A.waitForSelector('.pm-node--sticky [contenteditable]');
+  await S.evaluate(() => {
+    const m = window.processMap.model;
+    const item = m.all().find((i) => i.text === 'Sarah was here');
+    m.transact('edit', () => m.put({ ...item, text: 'Sarah edited this' }));
+  });
+  await A.waitForFunction(() => window.processMap.model.all().some((i) => i.text === 'Sarah edited this'), null, { timeout: 10000 });
+  await A.keyboard.press('Escape');
+  await A.waitForTimeout(2500);
+  const stillSarahs = await S.evaluate(() => window.processMap.model.all().some((i) => i.text === 'Sarah edited this'));
+  const adminShows = await A.textContent('.pm-node--sticky:has-text("Sarah")');
+  check('opening a note without typing keeps a collaborator\'s edit', stillSarahs && adminShows.includes('Sarah edited this'), adminShows);
+
   // Admin drags the step; Sarah sees the new position.
   const box = await A.locator('.pm-node--step', { hasText: 'Submit request' }).boundingBox();
   await A.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

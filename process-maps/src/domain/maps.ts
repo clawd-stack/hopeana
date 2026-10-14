@@ -92,7 +92,7 @@ export async function duplicateMap(store: Store, user: UserRecord, mapId: string
 
 export async function updateMap(store: Store, user: UserRecord, mapId: string, body: Record<string, unknown>) {
   if (!canEdit(user)) throw new AppError('READ_ONLY');
-  await requireMap(store, mapId);
+  const current = await requireMap(store, mapId);
   const patch: MapPatch = {};
   if (body.name !== undefined) patch.name = requireString(body.name, 'name', 120);
   if (body.area !== undefined) patch.area = optionalString(body.area, 'area', 60) ?? '';
@@ -104,6 +104,8 @@ export async function updateMap(store: Store, user: UserRecord, mapId: string, b
     patch.archived = body.archived;
   }
   if (!Object.keys(patch).length) refuse('INVALID_REQUEST');
+  // An archived map is read-only: restoring it is the one change allowed.
+  if (current.archivedAt && !(Object.keys(patch).length === 1 && patch.archived === false)) refuse('MAP_ARCHIVED');
   const map = await store.maps.update(mapId, patch, user.userId);
   if (!map) refuse('NOT_FOUND');
   return publicMap(map);

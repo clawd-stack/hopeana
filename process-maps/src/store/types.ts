@@ -19,6 +19,8 @@ export interface UserRecord {
   role: Role;
   active: boolean;
   mustChange: boolean;
+  /** In every session cookie; bumped by setPassword, which ends older sessions. */
+  sessionVersion: number;
   passwordHash: string | null;
   lastLoginAt: string | null;
   createdAt: string;
@@ -74,7 +76,10 @@ export interface MapPatch {
 }
 
 /** A write refused inside the store's transaction, so nothing was applied. */
-export type ApplyResult = { ok: true; revision: number } | { ok: false; code: 'NOT_FOUND' | 'MAP_ARCHIVED' | 'MAP_FULL' };
+export type ApplyResult =
+  | { ok: true; revision: number }
+  /** INVALID_REQUEST: a put would turn a live step into a connector or back. */
+  | { ok: false; code: 'NOT_FOUND' | 'MAP_ARCHIVED' | 'MAP_FULL' | 'INVALID_REQUEST' };
 
 export interface Store {
   users: {
@@ -84,6 +89,7 @@ export interface Store {
     /** Null when the address is already taken. */
     create(input: { email: string; name: string; role: Role; passwordHash: string | null; mustChange: boolean }): Promise<UserRecord | null>;
     update(userId: string, patch: { name?: string; role?: Role; active?: boolean }): Promise<UserRecord | null>;
+    /** Also bumps sessionVersion, signing out every existing session. */
     setPassword(userId: string, passwordHash: string, mustChange: boolean): Promise<void>;
     recordLogin(userId: string): Promise<void>;
   };

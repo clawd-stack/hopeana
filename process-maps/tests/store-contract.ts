@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Store } from '../src/store/types.ts';
+import { sanitiseItem, type Item } from '../src/domain/items.ts';
 import { makeUser, sticky } from './helpers.ts';
 
 /**
@@ -59,6 +60,32 @@ export function storeContract(name: string, make: () => Store, teardown?: () => 
 
       expect(await store.maps.items(map.mapId, 3)).toEqual([]);
       expect(await store.maps.get(map.mapId)).toMatchObject({ revision: 3, itemCount: 1, updatedByName: user.name });
+    });
+
+    it('stores text that has been through the item check, whatever was typed', async () => {
+      const user = await makeUser(store);
+      const map = await store.maps.create({ name: 'Odd text', area: '', description: '', userId: user.userId, items: [] });
+      const item = sanitiseItem({ ...sticky(), text: `nul\u0000 and half \u{1F600}`.slice(0, -1) });
+      expect(await store.maps.apply(map.mapId, [{ type: 'put', item }], user.userId, 100)).toMatchObject({ ok: true });
+      expect((await store.maps.items(map.mapId, 0))[0]!.item).toMatchObject({ text: 'nul and half \uFFFD' });
+    });
+
+    it('refuses to turn a live step into a connector, or back', async () => {
+      const user = await makeUser(store);
+      const note = sticky();
+      const map = await store.maps.create({ name: 'Kinds', area: '', description: '', userId: user.userId, items: [note] });
+      const asConnector = { id: note.id, kind: 'connector' as const, z: 0, from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, text: '', color: '#4b5563', dashed: false, arrow: 'end' as const, route: 'elbow' as const };
+      expect(await store.maps.apply(map.mapId, [{ type: 'put', item: asConnector }], user.userId, 100)).toEqual({ ok: false, code: 'INVALID_REQUEST' });
+      // A step changing shape is fine, and so is reusing a deleted id.
+      expect(await store.maps.apply(map.mapId, [{ type: 'put', item: { ...note, kind: 'decision' } as Item }], user.userId, 100)).toMatchObject({ ok: true });
+      await store.maps.apply(map.mapId, [{ type: 'delete', id: note.id }], user.userId, 100);
+      expect(await store.maps.apply(map.mapId, [{ type: 'put', item: asConnector }], user.userId, 100)).toMatchObject({ ok: true });
+    });
+
+    it('ends existing sessions when a password is set', async () => {
+      const user = await makeUser(store);
+      await store.users.setPassword(user.userId, 'scrypt$x', false);
+      expect((await store.users.get(user.userId))!.sessionVersion).toBe(user.sessionVersion + 1);
     });
 
     it('lets the last write to an item win', async () => {

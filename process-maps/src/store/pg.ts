@@ -48,6 +48,7 @@ function mapUser(row: any): UserRecord {
     role: row.role as Role,
     active: row.active,
     mustChange: row.must_change,
+    sessionVersion: toNumber(row.session_version),
     passwordHash: row.password_hash ?? null,
     lastLoginAt: isoOrNull(row.last_login_at),
     createdAt: iso(row.created_at),
@@ -148,7 +149,8 @@ export function createPgStore(connectionString?: string): Store {
       },
       async setPassword(userId, passwordHash, mustChange) {
         await sql()`
-          update pm_users set password_hash = ${passwordHash}, must_change = ${mustChange}, updated_at = now()
+          update pm_users set password_hash = ${passwordHash}, must_change = ${mustChange},
+            session_version = session_version + 1, updated_at = now()
           where user_id = ${userId}::uuid
         `;
       },
@@ -248,15 +250,23 @@ export function createPgStore(connectionString?: string): Store {
           const touched = asJson(tx, ops.map((op) => (op.type === 'put' ? op.item.id : op.id)));
 
           const [counts]: any[] = await tx`
-            select
-              (select count(*) from pm_items where map_id = ${mapId}::uuid and not deleted) as live,
-              (select count(*) from pm_items
-                where map_id = ${mapId}::uuid and not deleted
-                  and item_id in (select jsonb_array_elements_text(${touched}))) as touched_live
+            select count(*) as live from pm_items where map_id = ${mapId}::uuid and not deleted
           `;
+          const touchedLive: any[] = await tx`
+            select item_id, kind from pm_items
+            where map_id = ${mapId}::uuid and not deleted
+              and item_id in (select jsonb_array_elements_text(${touched}))
+          `;
+          // A live step cannot become a connector or the other way round: the
+          // two are drawn by different machinery, and every browser would choke.
+          const liveKinds = new Map(touchedLive.map((row) => [row.item_id as string, row.kind as string]));
+          for (const item of puts) {
+            const was = liveKinds.get(item.id);
+            if (was && (was === 'connector') !== (item.kind === 'connector')) return { ok: false, code: 'INVALID_REQUEST' } as const;
+          }
           // Live after = live now, minus every touched item that is live now,
           // plus every put (each put leaves its item live).
-          const liveAfter = toNumber(counts.live) - toNumber(counts.touched_live) + puts.length;
+          const liveAfter = toNumber(counts.live) - touchedLive.length + puts.length;
           if (liveAfter > maxItems) return { ok: false, code: 'MAP_FULL' } as const;
 
           const [bumped]: any[] = await tx`

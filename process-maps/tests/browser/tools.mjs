@@ -73,6 +73,21 @@ export default async function run({ browser, base, out, check, watch }) {
   check('lane carries its contents', stepAfter.y > stepBefore.y + 50, `${stepBefore.y} -> ${stepAfter.y}`);
   await page.keyboard.press('Control+z');
 
+  // Keys pressed mid-drag are ignored, so the drag stays one undo step.
+  const dragStep = await page.locator('.pm-node--step', { hasText: 'Collect TFN' }).boundingBox();
+  const x0 = (await items()).find((i) => i.text === 'Collect TFN form').x;
+  await page.mouse.move(dragStep.x + 20, dragStep.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(dragStep.x + 60, dragStep.y + 20, { steps: 4 });
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ArrowRight');
+  await page.mouse.move(dragStep.x + 120, dragStep.y + 20, { steps: 4 });
+  await page.mouse.up();
+  const x1 = (await items()).find((i) => i.text === 'Collect TFN form').x;
+  await page.keyboard.press('Control+z');
+  const x2 = (await items()).find((i) => i.text === 'Collect TFN form').x;
+  check('a drag is one undo step even with keys pressed during it', x1 !== x0 && x2 === x0, `${x0} -> ${x1} -> ${x2}`);
+
   // Text tool.
   await page.keyboard.press('t');
   await page.mouse.click(700, 700);

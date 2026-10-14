@@ -86,6 +86,7 @@ const actions = {
     try {
       const { map } = await api.patch(`/api/maps/${mapId}`, patch);
       state.map = map;
+      shownMap = mapKey();
       chrome.setMap();
     } catch (error) {
       toast(error.message, 'bad');
@@ -109,6 +110,10 @@ const actions = {
 
 const chrome = createChrome({ model, camera, renderer, editor, ui, user, state, actions });
 chrome.setMap();
+// What the chrome shows of the map. Every sync carries the map, but redrawing
+// the toolbars on each one would swap a button out from under a click.
+const mapKey = () => [state.map.name, state.map.area, state.map.description, state.map.status, state.map.archivedAt, state.canEdit].join('|');
+let shownMap = mapKey();
 
 const sync = createSync({
   mapId,
@@ -123,10 +128,12 @@ const sync = createSync({
   },
   onMap: (map, canEdit) => {
     if (map) state.map = map;
-    const changed = state.canEdit !== canEdit;
     state.canEdit = canEdit;
     editor.setReadOnly(!canEdit);
-    if (map || changed) chrome.setMap();
+    if (mapKey() !== shownMap) {
+      shownMap = mapKey();
+      chrome.setMap();
+    }
   },
   onFatal: (error) => {
     if (error.code === 'UNAUTHENTICATED') fatal('You have been signed out', el('a', { class: 'pm-btn pm-btn--primary', href: location.href, text: 'Sign in again' }));

@@ -29,6 +29,9 @@ create table if not exists pm_users (
   -- Set on every admin-issued password, cleared when the person picks
   -- their own, so a password that was read out or emailed never lasts.
   must_change    boolean not null default true,
+  -- Part of every session cookie. Bumped whenever the password changes, so
+  -- a reset or a change signs out every browser still holding the old one.
+  session_version integer not null default 0,
   active         boolean not null default true,
   last_login_at  timestamptz,
   created_at     timestamptz not null default now(),

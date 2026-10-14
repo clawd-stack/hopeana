@@ -76,6 +76,7 @@ export function createMemoryStore(): MemoryStore {
           role: input.role,
           active: true,
           mustChange: input.mustChange,
+          sessionVersion: 0,
           passwordHash: input.passwordHash,
           lastLoginAt: null,
           createdAt: new Date().toISOString(),
@@ -96,6 +97,7 @@ export function createMemoryStore(): MemoryStore {
         if (!user) return;
         user.passwordHash = passwordHash;
         user.mustChange = mustChange;
+        user.sessionVersion += 1;
       },
       async recordLogin(userId) {
         const user = users.get(userId);
@@ -180,6 +182,9 @@ export function createMemoryStore(): MemoryStore {
         for (const op of ops) {
           const existing = map.items.get(op.type === 'put' ? op.item.id : op.id);
           const wasLive = Boolean(existing && !existing.deleted);
+          if (op.type === 'put' && wasLive && (existing!.item!.kind === 'connector') !== (op.item.kind === 'connector')) {
+            return { ok: false, code: 'INVALID_REQUEST' };
+          }
           if (op.type === 'put' && !wasLive) live += 1;
           if (op.type === 'delete' && wasLive) live -= 1;
         }

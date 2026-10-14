@@ -95,6 +95,14 @@ If two people change the same item at the same moment, the later save wins, whic
 
 Netlify functions cannot hold a live connection open, so browsers poll: every 1.5 seconds while someone else is on the board, every 6 seconds when alone, every 30 seconds in a background tab, and within 300 ms of any local edit. Offline edits wait in the browser and go with the next successful request. Polling is contained in `web/maps/board/sync.js`; moving to a push channel later would change that file and nothing else.
 
+## Security
+
+- Passwords are hashed with scrypt; sign-in failures all look the same and are rate limited by address and by IP.
+- An admin-issued password is good for choosing a new one and nothing else, enforced by the server.
+- Changing or resetting a password ends every session on that account.
+- Writes are accepted only as JSON from the site's own pages (`Sec-Fetch-Site` and `Origin` are checked), and the pages run under a strict Content-Security-Policy.
+- Everything a browser sends is rebuilt from known fields on the server, with text cleaned of anything Postgres would refuse.
+
 ## Limits, on purpose
 
 - Up to 4,000 items per map. Bigger than that is two processes.

@@ -25,35 +25,46 @@ export const LOGIN_RATE_WINDOW_MS = 15 * 60_000;
 interface SessionPayload {
   kind: 'pm-user';
   userId: string;
+  /** The account's sessionVersion when this was issued. */
+  v: number;
   exp: number;
 }
 
-export function issueSession(userId: string): string {
+export function issueSession(user: { userId: string; sessionVersion: number }): string {
   const payload: SessionPayload = {
     kind: 'pm-user',
-    userId,
+    userId: user.userId,
+    v: user.sessionVersion,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_DAYS * 86_400,
   };
   return signSession(env.sessionSecret, payload as unknown as Record<string, unknown>);
 }
 
-export function readSessionUserId(request: Request): string | null {
+function readSession(request: Request): { userId: string; v: number } | null {
   const cookie = readCookie(request, SESSION_COOKIE);
   if (!cookie) return null;
   const payload = verifySession<SessionPayload>(env.sessionSecret, cookie);
-  return payload?.kind === 'pm-user' && typeof payload.userId === 'string' ? payload.userId : null;
+  if (payload?.kind !== 'pm-user' || typeof payload.userId !== 'string' || typeof payload.v !== 'number') return null;
+  return { userId: payload.userId, v: payload.v };
 }
 
+/** The signed-in user, or null. A cookie from before a password change no longer counts. */
 export async function currentUser(request: Request, store: Store): Promise<UserRecord | null> {
-  const userId = readSessionUserId(request);
-  if (!userId) return null;
-  const user = await store.users.get(userId);
-  return user && user.active ? user : null;
+  const session = readSession(request);
+  if (!session) return null;
+  const user = await store.users.get(session.userId);
+  return user && user.active && user.sessionVersion === session.v ? user : null;
 }
 
-export async function requireUser(request: Request, store: Store): Promise<UserRecord> {
+/**
+ * The signed-in user, who must also have replaced any password an admin
+ * issued: that is enforced here, not only by the sign-in screen, so a
+ * temporary password is good for choosing a new one and nothing else.
+ */
+export async function requireUser(request: Request, store: Store, { allowMustChange = false } = {}): Promise<UserRecord> {
   const user = await currentUser(request, store);
   if (!user) throw new AppError('UNAUTHENTICATED');
+  if (user.mustChange && !allowMustChange) throw new AppError('PASSWORD_CHANGE_REQUIRED');
   return user;
 }
 

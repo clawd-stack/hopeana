@@ -1,4 +1,5 @@
 import { refuse } from '../lib/errors.ts';
+import { cleanText } from '../lib/text.ts';
 
 /**
  * What can sit on a map, and the server's check on every item a browser sends.
@@ -87,7 +88,7 @@ function text(value: unknown, field: string, max: number): string {
   if (typeof value !== 'string') refuse('INVALID_REQUEST', { field });
   // Over-long text is truncated rather than refused: a pasted essay should not
   // make the whole batch fail and lose everybody else's edits with it.
-  return value.slice(0, max);
+  return cleanText(value, max);
 }
 
 function oneOf<T extends readonly string[]>(value: unknown, allowed: T, fallback: T[number]): T[number] {

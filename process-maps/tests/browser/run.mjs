@@ -2,7 +2,10 @@
  * Browser tests: the real pages in Chromium against the local server.
  *
  *   npm run test:browser                     in-memory store
- *   DATABASE_URL=postgres://... npm run test:browser
+ *   DATABASE_URL=postgres://... npm run test:browser   an EMPTY database, migrated
+ *
+ * The scenarios add the same people every run, so against a database that
+ * already holds them the team step stops at "email already taken".
  *
  * Starts scripts/dev-server.mjs on a spare port, runs each scenario in order
  * (later ones use what earlier ones made), and fails on any failed check or

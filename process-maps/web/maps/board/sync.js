@@ -18,6 +18,8 @@ const ALONE = 6000;
 const HIDDEN = 30000;
 const SOON = 300;
 const PREVIEW_EVERY = 20000;
+/** Under the server's per-request limit; anything more goes in the next request straight after. */
+const BATCH = 1000;
 
 export function createSync({ mapId, model, ui, revision, needsPreview, onStatus, onPeers, onMap, onFatal }) {
   let since = revision;
@@ -51,7 +53,7 @@ export function createSync({ mapId, model, ui, revision, needsPreview, onStatus,
     if (busy || stopped) return;
     busy = true;
     // A drag in progress keeps its changes back until it lands.
-    const ops = model.holding ? [] : model.takeOutbox();
+    const ops = model.holding ? [] : model.takeOutbox(BATCH);
     const selection = [...ui.selection].slice(0, 200);
     lastSelection = selection.join(',');
     const body = { since, ops, selection, client };
@@ -85,8 +87,7 @@ export function createSync({ mapId, model, ui, revision, needsPreview, onStatus,
       } else if (error.code === 'READ_ONLY' || error.code === 'MAP_ARCHIVED') {
         // Somebody changed our access or archived the map mid-edit. Drop the
         // edits that can no longer be saved and reload what is really there.
-        model.takeOutbox();
-        model.ackInflight();
+        model.discardOutbox();
         onMap(null, false);
         onStatus('readonly', error.message);
         failures = 0;
@@ -95,8 +96,7 @@ export function createSync({ mapId, model, ui, revision, needsPreview, onStatus,
       } else if (error.code === 'INVALID_REQUEST' || error.code === 'MAP_FULL') {
         // A change the server will never accept would otherwise be retried
         // forever and block everything behind it.
-        model.takeOutbox();
-        model.ackInflight();
+        model.discardOutbox();
         onStatus('error', error.message);
         failures = 0;
         since = 0;
@@ -131,7 +131,10 @@ export function createSync({ mapId, model, ui, revision, needsPreview, onStatus,
   addEventListener('beforeunload', (event) => {
     if (!model.pending) return;
     // Best effort to save on the way out, and a prompt if that may not land.
-    const ops = model.holding ? [] : model.takeOutbox();
+    // A copy, not a take: if the person chooses to stay, the normal loop
+    // still owns these changes and sends them again (puts are repeatable).
+    // Kept small, because the browser refuses keepalive bodies over 64 KB.
+    const ops = model.holding ? [] : model.peekOutbox(100);
     if (ops.length) {
       fetch(`/api/maps/${mapId}/sync`, {
         method: 'POST',

@@ -42,6 +42,17 @@ describe('sanitiseItem', () => {
     expect(item.kind === 'sticky' && item.text.length).toBe(LIMITS.text);
   });
 
+  it('removes NULs and repairs half an emoji, either of which Postgres would refuse', () => {
+    const emoji = '\u{1F600}';
+    const item = sanitiseItem({ id: 'a', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, text: `a\u0000b${emoji[0]}`, owner: emoji[1] });
+    expect(item.kind === 'sticky' && item.text).toBe('ab\uFFFD');
+    expect(item.kind === 'sticky' && item.owner).toBe('\uFFFD');
+    // Cutting at the limit must not leave the first half of a pair behind.
+    const long = sanitiseItem({ id: 'c', kind: 'connector', from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, text: `${'x'.repeat(LIMITS.field - 1)}${emoji}` });
+    expect(long.text.endsWith('\uFFFD')).toBe(true);
+    expect(long.text.length).toBe(LIMITS.field);
+  });
+
   it('only accepts hex colours, falling back to the default for the kind', () => {
     expect(sanitiseItem({ id: 'a', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, color: 'red;background:url(x)' }).color).toBe('#fff1a8');
     expect(sanitiseItem({ id: 'a', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, color: '#ABCDEF' }).color).toBe('#abcdef');

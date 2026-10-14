@@ -17,6 +17,7 @@ export const REFUSAL = {
   MAP_FULL: { status: 409, message: 'This map has reached its size limit. Split it into two maps.' },
   EMAIL_TAKEN: { status: 409, message: 'Somebody on the team already uses that email address.' },
   CANNOT_CHANGE_SELF: { status: 409, message: 'You cannot remove your own admin access. Ask another admin.' },
+  PASSWORD_CHANGE_REQUIRED: { status: 403, message: 'Please choose your own password before carrying on.' },
   PASSWORD_REJECTED: { status: 400, message: 'Please choose a different password.' },
   RATE_LIMITED: { status: 429, message: 'Too many attempts. Please wait a few minutes and try again.' },
   INVALID_REQUEST: { status: 400, message: 'That request was not valid.' },

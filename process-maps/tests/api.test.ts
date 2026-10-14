@@ -101,6 +101,42 @@ describe('sign in', () => {
     expect((await mapsHandler(get('/api/maps', cookie))).status).toBe(401);
   });
 
+  it('treats a malformed cookie as no cookie, not a server error', async () => {
+    const response = await mapsHandler(get('/api/maps', `${SESSION_COOKIE}=%E0%A4%A`));
+    expect(response.status).toBe(401);
+  });
+
+  it('ends every session when an admin resets the password', async () => {
+    const admin = await makeUser(store, 'admin');
+    const person = await makeUser(store, 'editor', 'old-password-12345');
+    const before = cookieFor(person);
+    expect((await mapsHandler(get('/api/maps', before))).status).toBe(200);
+    await teamHandler(send('PATCH', `/api/team/${person.userId}`, { resetPassword: true }, cookieFor(admin)));
+    expect((await mapsHandler(get('/api/maps', before))).status).toBe(401);
+  });
+
+  it('refuses everything but choosing a password while an issued one is unchanged', async () => {
+    const admin = await makeUser(store, 'admin');
+    const { password, user } = await body(await teamHandler(send('POST', '/api/team', { name: 'New Starter', email: 'new@example.com' }, cookieFor(admin))));
+    const login = await loginHandler(send('POST', '/api/auth/login', { email: 'new@example.com', password }));
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const blocked = await mapsHandler(get('/api/maps', cookie));
+    expect(blocked.status).toBe(403);
+    expect((await body(blocked)).code).toBe('PASSWORD_CHANGE_REQUIRED');
+    expect((await body(await sessionHandler(get('/api/auth/session', cookie)))).user).toMatchObject({ userId: user.userId, mustChangePassword: true });
+    const changed = await passwordHandler(send('POST', '/api/auth/password', { current: password, next: 'my own password 2026' }, cookie));
+    expect(changed.status).toBe(200);
+    // The old cookie ends with the change; the one handed back carries on.
+    expect((await mapsHandler(get('/api/maps', cookie))).status).toBe(401);
+    const fresh = (changed.headers.get('set-cookie') ?? '').split(';')[0]!;
+    expect((await mapsHandler(get('/api/maps', fresh))).status).toBe(200);
+  });
+
+  it('refuses an email with control characters before it reaches the database', async () => {
+    const response = await loginHandler(send('POST', '/api/auth/login', { email: 'a\u0000@example.com', password: 'whatever whatever' }));
+    expect(response.status).toBe(400);
+  });
+
   it('rejects a forged cookie', async () => {
     const user = await makeUser(store);
     const forged = cookieFor(user).replace(/\.[^.]+$/, '.forgedsignature');
@@ -168,11 +204,34 @@ describe('maps', () => {
     expect((await syncHandler(send('POST', '/api/maps/00000000-0000-4000-8000-000000000000/sync', { since: 0 }))).status).toBe(401);
   });
 
-  it('refuse writes that are not JSON, which is what keeps cross-site forms out', async () => {
+  it('refuse writes that are not exactly JSON, which is what keeps cross-site forms out', async () => {
     const user = await makeUser(store);
-    const response = await mapsHandler(send('POST', '/api/maps', 'name=Evil', cookieFor(user), 'application/x-www-form-urlencoded'));
-    expect(response.status).toBe(400);
+    const form = await mapsHandler(send('POST', '/api/maps', 'name=Evil', cookieFor(user), 'application/x-www-form-urlencoded'));
+    expect(form.status).toBe(400);
+    const sneaky = await mapsHandler(send('POST', '/api/maps', { name: 'Evil' }, cookieFor(user), 'text/plain; x=application/json'));
+    expect(sneaky.status).toBe(400);
     expect(store._maps.size).toBe(0);
+  });
+
+  it('refuse writes from another site, even a sibling subdomain', async () => {
+    const user = await makeUser(store);
+    const crossSite = send('POST', '/api/maps', { name: 'Evil' }, cookieFor(user));
+    crossSite.headers.set('sec-fetch-site', 'same-site');
+    expect((await mapsHandler(crossSite)).status).toBe(403);
+    const otherOrigin = send('POST', '/api/maps', { name: 'Evil' }, cookieFor(user));
+    otherOrigin.headers.set('origin', 'https://evil.example.com');
+    otherOrigin.headers.set('host', 'maps.example.com');
+    expect((await mapsHandler(otherOrigin)).status).toBe(403);
+    const signOut = send('POST', '/api/auth/session', {});
+    signOut.headers.set('sec-fetch-site', 'cross-site');
+    expect((await sessionHandler(signOut)).status).toBe(403);
+    expect(store._maps.size).toBe(0);
+    // The site's own pages are fine.
+    const own = send('POST', '/api/maps', { name: 'Fine' }, cookieFor(user));
+    own.headers.set('sec-fetch-site', 'same-origin');
+    own.headers.set('origin', 'https://maps.example.com');
+    own.headers.set('host', 'maps.example.com');
+    expect((await mapsHandler(own)).status).toBe(201);
   });
 
   it('are created from a template and loaded with their items', async () => {
@@ -201,6 +260,9 @@ describe('maps', () => {
     await mapsHandler(send('PATCH', `/api/maps/${map.mapId}`, { archived: true }, cookieFor(user)));
     expect((await body(await mapsHandler(get('/api/maps', cookieFor(user))))).maps).toHaveLength(0);
     expect((await body(await mapsHandler(get('/api/maps?archived=1', cookieFor(user))))).maps).toHaveLength(1);
+    // Archived is read-only: no renaming, only restoring.
+    expect((await mapsHandler(send('PATCH', `/api/maps/${map.mapId}`, { name: 'Sneaky' }, cookieFor(user)))).status).toBe(409);
+    expect((await mapsHandler(send('PATCH', `/api/maps/${map.mapId}`, { archived: false }, cookieFor(user)))).status).toBe(200);
   });
 
   it('can be duplicated with everything on them', async () => {

@@ -10,6 +10,11 @@
  * undo, and a cancelled gesture can be rolled back exactly. A transaction
  * marked `hold` (a drag in progress) keeps its changes out of the outbox until
  * it ends, so collaborators see the move land rather than sixty half-moves.
+ *
+ * Undo is a three-way merge per field, not a snapshot restore: it puts back
+ * only the fields this browser's action changed, and only where nobody has
+ * changed them since. Undoing a colour change never reverts the text a
+ * collaborator typed in the meantime, and never resurrects what they deleted.
  */
 
 const clone = (value) => (value ? structuredClone(value) : null);
@@ -33,6 +38,8 @@ export function createModel() {
   const inflight = new Map();
   const undoStack = [];
   const redoStack = [];
+  /** Remote changes held back while a gesture had the item; settled when it ends. */
+  const deferred = new Map();
   const changeListeners = new Set();
   const commitListeners = new Set();
   let txn = null;
@@ -62,13 +69,52 @@ export function createModel() {
     emit(id);
   }
 
-  function restore(states) {
-    for (const [id, value] of states) {
-      if (value) items.set(id, clone(value));
+  function put(id, value) {
+    if (value) items.set(id, value);
+    else items.delete(id);
+    outbox.set(id, value);
+    emit(id);
+  }
+
+  /** Moves items from the state an action left (`from`) back to `target`, field by field. */
+  function revert(target, from) {
+    for (const [id, want] of target) {
+      const was = from.get(id) ?? null;
+      const now = items.get(id) ?? null;
+      if (!want) {
+        // Undoing a creation: remove it, if it is still there.
+        if (now) put(id, null);
+        continue;
+      }
+      if (!was) {
+        // Undoing a deletion: bring it back, unless it already is.
+        if (!now) put(id, clone(want));
+        continue;
+      }
+      // Deleted by somebody else since: leave it deleted.
+      if (!now) continue;
+      const next = { ...now };
+      let changed = false;
+      for (const key of new Set([...Object.keys(want), ...Object.keys(was)])) {
+        if (same(want[key], was[key]) || !same(now[key], was[key])) continue;
+        next[key] = clone(want[key]);
+        changed = true;
+      }
+      if (changed) put(id, next);
+    }
+  }
+
+  /** Applies remote changes that arrived mid-gesture, unless the gesture's own change won. */
+  function settleDeferred() {
+    for (const [id, item] of deferred) {
+      if (outbox.has(id) || inflight.has(id)) continue;
+      const current = items.get(id);
+      if (item ? same(current, item) : !current) continue;
+      if (item) items.set(id, item);
       else items.delete(id);
-      outbox.set(id, clone(value));
       emit(id);
     }
+    deferred.clear();
   }
 
   const model = {
@@ -128,6 +174,7 @@ export function createModel() {
         if (undoStack.length > 300) undoStack.shift();
         redoStack.length = 0;
       }
+      settleDeferred();
       for (const fn of commitListeners) fn(after.size > 0);
     },
 
@@ -142,6 +189,7 @@ export function createModel() {
         if (!t.hold) outbox.set(id, prev);
         emit(id);
       }
+      settleDeferred();
     },
 
     transact(label, run) {
@@ -159,7 +207,7 @@ export function createModel() {
       if (txn) model.commit();
       const entry = undoStack.pop();
       if (!entry) return null;
-      restore(entry.before);
+      revert(entry.before, entry.after);
       redoStack.push(entry);
       for (const fn of commitListeners) fn(true);
       return entry;
@@ -168,7 +216,7 @@ export function createModel() {
       if (txn) model.commit();
       const entry = redoStack.pop();
       if (!entry) return null;
-      restore(entry.after);
+      revert(entry.after, entry.before);
       undoStack.push(entry);
       for (const fn of commitListeners) fn(true);
       return entry;
@@ -180,7 +228,13 @@ export function createModel() {
      * the local change is newer and will reach the server after this one.
      */
     applyRemote(id, item) {
-      if (outbox.has(id) || inflight.has(id) || txn?.before.has(id)) return false;
+      if (outbox.has(id) || inflight.has(id)) return false;
+      if (txn?.before.has(id)) {
+        // Mid-gesture on this item: decide when the gesture ends, so a
+        // cancelled drag still picks up what changed elsewhere.
+        deferred.set(id, item);
+        return false;
+      }
       const current = items.get(id);
       if (item ? same(current, item) : !current) return false;
       if (item) items.set(id, item);
@@ -191,14 +245,30 @@ export function createModel() {
 
     get pending() { return outbox.size + inflight.size; },
     get hasUnsent() { return outbox.size > 0; },
-    takeOutbox() {
+    /** Moves up to `limit` unsent changes in flight; the rest wait for the next request. */
+    takeOutbox(limit = Infinity) {
       const ops = [];
       for (const [id, value] of outbox) {
+        if (ops.length >= limit) break;
         inflight.set(id, value);
+        outbox.delete(id);
         ops.push(value ? { type: 'put', item: value } : { type: 'delete', id });
       }
-      outbox.clear();
       return ops;
+    },
+    /** A copy of unsent changes, leaving them unsent: for a best-effort save on the way out. */
+    peekOutbox(limit = Infinity) {
+      const ops = [];
+      for (const [id, value] of [...inflight, ...outbox]) {
+        if (ops.length >= limit) break;
+        ops.push(value ? { type: 'put', item: value } : { type: 'delete', id });
+      }
+      return ops;
+    },
+    /** Drops every unsent change, after the server has refused them for good. */
+    discardOutbox() {
+      outbox.clear();
+      inflight.clear();
     },
     ackInflight() {
       inflight.clear();

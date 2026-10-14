@@ -20,7 +20,7 @@ export async function makeUser(store: Store, role: Role = 'editor', password: st
 }
 
 export function cookieFor(user: UserRecord): string {
-  return `${SESSION_COOKIE}=${encodeURIComponent(issueSession(user.userId))}`;
+  return `${SESSION_COOKIE}=${encodeURIComponent(issueSession(user))}`;
 }
 
 export function get(path: string, cookie?: string): Request {

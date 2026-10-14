@@ -1,5 +1,6 @@
 import { AppError, refuse } from './errors.ts';
 import { env } from './env.ts';
+import { cleanText, hasControlCharacters } from './text.ts';
 
 /**
  * Request and response helpers shared by every function, so no endpoint
@@ -32,10 +33,34 @@ export function errorResponse(error: unknown): Response {
   return json({ ok: false, code: 'INTERNAL', message: 'Something went wrong at our end. Please try again.' }, 500);
 }
 
+/**
+ * Writes must come from this site's own pages. Browsers say where a request
+ * came from in Sec-Fetch-Site, and in Origin; a sibling subdomain or any
+ * other site is refused even though SameSite=Lax would let its cookie
+ * through for a same-site request.
+ */
+export function requireSameOrigin(request: Request): void {
+  if (request.method === 'GET' || request.method === 'HEAD') return;
+  const site = request.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') refuse('FORBIDDEN', { reason: 'cross-site' });
+  const origin = request.headers.get('origin');
+  if (origin) {
+    let host: string | null = null;
+    try {
+      host = new URL(origin).host;
+    } catch {
+      refuse('FORBIDDEN', { reason: 'origin' });
+    }
+    const expected = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? new URL(request.url).host;
+    if (host !== expected) refuse('FORBIDDEN', { reason: 'origin' });
+  }
+}
+
 /** Wraps a handler so every thrown error becomes a shaped response. */
 export function handler(run: (request: Request) => Promise<Response>): (request: Request) => Promise<Response> {
   return async (request: Request) => {
     try {
+      requireSameOrigin(request);
       return await run(request);
     } catch (error) {
       return errorResponse(error);
@@ -48,8 +73,10 @@ export function requireMethod(request: Request, ...methods: string[]): void {
 }
 
 export async function readJson<T = Record<string, unknown>>(request: Request): Promise<T> {
-  const type = request.headers.get('content-type') ?? '';
-  if (!type.toLowerCase().includes('application/json')) refuse('INVALID_REQUEST', { expected: 'application/json' });
+  // The media type exactly: "text/plain; x=application/json" is a simple
+  // request a cross-site form can send without a preflight.
+  const type = (request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  if (type !== 'application/json') refuse('INVALID_REQUEST', { expected: 'application/json' });
   let body: unknown;
   try {
     body = await request.json();
@@ -78,7 +105,14 @@ export function readCookie(request: Request, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
     const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
+    if (key !== name) continue;
+    // A malformed cookie (planted by a sibling domain, say) is no cookie,
+    // not a 500 on every request.
+    try {
+      return decodeURIComponent(rest.join('='));
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -118,7 +152,7 @@ export function clientIp(request: Request): string | null {
 export function normaliseEmail(value: unknown): string {
   if (typeof value !== 'string') refuse('INVALID_REQUEST', { field: 'email' });
   const email = value.trim().toLowerCase();
-  if (email.length < 3 || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email.length < 3 || email.length > 254 || hasControlCharacters(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     refuse('INVALID_REQUEST', { field: 'email' }, 'Please enter a valid email address.');
   }
   return email;
@@ -128,11 +162,13 @@ export function requireString(value: unknown, field: string, maxLength = 200): s
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > maxLength) {
     refuse('INVALID_REQUEST', { field });
   }
-  return value.trim();
+  const clean = cleanText(value, maxLength).trim();
+  if (!clean) refuse('INVALID_REQUEST', { field });
+  return clean;
 }
 
 export function optionalString(value: unknown, field: string, maxLength = 200): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string' || value.length > maxLength) refuse('INVALID_REQUEST', { field });
-  return value.trim();
+  return cleanText(value, maxLength).trim();
 }

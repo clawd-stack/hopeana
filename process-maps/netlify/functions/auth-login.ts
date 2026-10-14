@@ -35,13 +35,15 @@ export default handler(async (request) => {
 
   if (needsRehash(user.passwordHash)) await store.users.setPassword(user.userId, await hashPassword(password), user.mustChange);
   await store.users.recordLogin(user.userId);
+  // Re-read: a rehash above bumps the session version.
+  const fresh = (await store.users.get(user.userId)) ?? user;
 
   return new Response(JSON.stringify({ ok: true, user: publicUser(user) }), {
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
-      'set-cookie': setCookie(SESSION_COOKIE, issueSession(user.userId), SESSION_TTL_DAYS * 86_400, isHttps(request)),
+      'set-cookie': setCookie(SESSION_COOKIE, issueSession(fresh), SESSION_TTL_DAYS * 86_400, isHttps(request)),
     },
   });
 });

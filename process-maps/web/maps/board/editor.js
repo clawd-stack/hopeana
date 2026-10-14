@@ -602,7 +602,14 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
 
   /* Text editing --------------------------------------------------------- */
 
-  const readText = (label) => label.innerText.replace(/ /g, ' ').replace(/\n$/, '');
+  const readText = (label) => label.innerText.replace(/\u00a0/g, ' ').replace(/\n$/, '');
+
+  /** Truncates without splitting an emoji in half, and without NULs, which the server would refuse. */
+  const clip = (text, max) => {
+    let out = text.replace(/\u0000/g, '').slice(0, max);
+    if (/[\uD800-\uDBFF]$/.test(out)) out = out.slice(0, -1);
+    return out;
+  };
 
   function textHeight(item) {
     const el = renderer.element(item.id);
@@ -631,6 +638,8 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
       return;
     }
     label.textContent = item.text;
+    const startText = item.text;
+    const max = item.kind === 'connector' || item.kind === 'lane' ? 160 : 4000;
     label.contentEditable = 'plaintext-only';
     if (label.contentEditable !== 'plaintext-only') label.contentEditable = 'true';
     label.spellcheck = true;
@@ -639,7 +648,7 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
     const onInput = () => {
       const current = get(id);
       if (!current) return stopEdit();
-      const text = readText(label).slice(0, 4000);
+      const text = clip(readText(label), max);
       let next = { ...current, text };
       if (current.kind === 'text') next = { ...next, h: textHeight(next) };
       model.put(next);
@@ -663,7 +672,7 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
     label.addEventListener('keydown', onKey);
     label.addEventListener('paste', onPaste);
     label.addEventListener('blur', onBlur);
-    edit = { id, label, off: () => {
+    edit = { id, label, startText, max, off: () => {
       label.removeEventListener('input', onInput);
       label.removeEventListener('keydown', onKey);
       label.removeEventListener('paste', onPaste);
@@ -682,14 +691,17 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
 
   function stopEdit() {
     if (!edit) return;
-    const { id, label, off } = edit;
+    const { id, label, startText, max, off } = edit;
     edit = null;
     off();
-    const text = readText(label).slice(0, 4000);
+    const text = clip(readText(label), max);
     label.removeAttribute('contenteditable');
     const item = get(id);
     if (item) {
-      let next = item.text === text ? item : { ...item, text };
+      // Only a change this person typed is written. If they typed nothing, a
+      // collaborator may have changed the text meanwhile, and the label (left
+      // alone while editing) is stale: writing it back would undo their edit.
+      let next = text === startText || item.text === text ? item : { ...item, text };
       if (item.kind === 'text') {
         if (!text.trim()) {
           model.remove(id);
@@ -933,6 +945,9 @@ export function createEditor({ model, camera, renderer, ui, stage, toast, onChan
 
   addEventListener('keydown', (e) => {
     if (isTyping(e.target) || document.querySelector('dialog[open]')) return;
+    // Mid-drag, only Escape (which cancels the drag) means anything. Anything
+    // else would commit the drag's transaction halfway through it.
+    if (ui.gesture && e.key !== 'Escape') return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
 

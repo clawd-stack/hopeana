@@ -107,7 +107,8 @@ export function createRenderer({ model, camera, ui, dom }) {
       attached.get(id)?.forEach((c) => linkIds.add(c));
       const item = model.get(id);
       if (!item || item.kind === 'connector') {
-        if (!item && els.get(id)?._kind !== 'connector') removeNode(id);
+        // Gone, or now a connector where a node used to be: drop the node.
+        if (els.has(id) && els.get(id)._kind !== 'connector') removeNode(id);
         linkIds.add(id);
         connectorsChanged = true;
         continue;
@@ -173,7 +174,9 @@ export function createRenderer({ model, camera, ui, dom }) {
   function updateNode(item) {
     let el = els.get(item.id);
     if (!el || el._kind !== item.kind) {
-      el?.remove();
+      // A connector becoming a node takes its label and route with it.
+      if (el?._kind === 'connector') removeLink(item.id);
+      else el?.remove();
       el = createNode(item);
       el._kind = item.kind;
       els.set(item.id, el);

@@ -414,7 +414,8 @@ export function createChrome({ model, camera, renderer, editor, ui, user, state,
     }
 
     if (!panel.hidden) {
-      const key = `${ui.readOnly}|${[...ui.selection].join(',')}|${items.length === 1 ? `${items[0].kind}:${items[0].flag}` : ''}`;
+      // With nothing selected the panel summarises the map, so it follows the item count.
+      const key = `${ui.readOnly}|${[...ui.selection].join(',')}|${items.length === 1 ? `${items[0].kind}:${items[0].flag}` : items.length ? '' : model.size}`;
       const typing = panel.contains(document.activeElement) && document.activeElement.matches('input, textarea');
       if (key !== panelKey && !typing) {
         panelKey = key;
@@ -452,7 +453,6 @@ export function createChrome({ model, camera, renderer, editor, ui, user, state,
       readOnlyPill.hidden = state.canEdit;
       readOnlyPill.textContent = map.archivedAt ? 'Archived, view only' : 'View only';
       document.title = `${map.name} · Process maps`;
-      contextKey = '';
       panelKey = '';
       update();
     },
